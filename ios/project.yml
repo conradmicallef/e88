@@ -1,0 +1,51 @@
+name: E88Controller
+options:
+  bundleIdPrefix: com.conradmicallef
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  E88Controller:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Resources
+    info:
+      path: Config/Info.plist
+      properties:
+        CFBundleDisplayName: E88 Controller
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocalNetworkUsageDescription: E88 Controller sends flight commands to your drone over its Wi-Fi network.
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.entertainment
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.conradmicallef.e88controller
+        PRODUCT_NAME: E88Controller
+        DEVELOPMENT_TEAM: ${TEAM_ID}
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+schemes:
+  E88Controller:
+    build:
+      targets:
+        E88Controller: all
+    archive:
+      config: Release

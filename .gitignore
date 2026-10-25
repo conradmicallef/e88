@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+recordings/
+*.pt
+calibration.json
+landing_pad.*
+ios/*.xcodeproj/
+build/
+.DS_Store
