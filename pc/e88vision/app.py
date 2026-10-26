@@ -222,7 +222,7 @@ class App:
         link_ok = self.dry_run or (st.rx > 0 and time.monotonic() - st.last_rx < 3)
         proto = "GL" if self.link.protocol == P.GL else "legacy"
         cam = "DOWN" if self.bottom else "FRONT"
-        head = (f"{self.mode}  cam {cam}  {self.src.fps:4.1f} fps  "
+        head = (f"{self.mode}  cam {cam} {w}x{h}  {self.src.fps:4.1f} fps  "
                 f"{'DRY RUN' if self.dry_run else ('link OK' if link_ok else 'no telemetry')}  {proto}"
                 f"{'  id ' + str(st.device_id) if st.device_id is not None else ''}")
         cv2.putText(o, head, (8, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, green if link_ok else yellow, 1)

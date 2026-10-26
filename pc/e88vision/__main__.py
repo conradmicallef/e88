@@ -32,10 +32,19 @@ def cmd_replay(a):
     from pathlib import Path
     from .app import App, STABILISE, FOLLOW, LAND
     path = Path(a.recording)
-    video = path / "video.avi" if path.is_dir() else path
+    if path.is_dir():
+        videos = sorted(path.glob("video_*.avi")) or sorted(path.glob("video.avi"))
+        if a.segment:
+            videos = [v for v in videos if v.stem.endswith(f"{a.segment:03d}")]
+    else:
+        videos = [path]
+    if not videos:
+        raise SystemExit(f"no video found in {path}")
     modes = {"stabilise": STABILISE, "follow": FOLLOW, "autoland": LAND}
-    App(source=str(video), dry_run=True, record=False, hfov=a.hfov, realtime=False,
-        start_mode=modes[a.mode], follow_model=a.model).run()
+    for v in videos:
+        print(f"replaying {v}")
+        App(source=str(v), dry_run=True, record=False, hfov=a.hfov, realtime=False,
+            start_mode=modes[a.mode], follow_model=a.model).run()
 
 
 def cmd_probe(a):
@@ -176,6 +185,8 @@ def main(argv=None):
     r.add_argument("recording", help="recordings/<stamp> folder or a video file")
     r.add_argument("--mode", choices=["stabilise", "follow", "autoland"], required=True)
     r.add_argument("--hfov", type=float, default=90.0)
+    r.add_argument("--segment", type=int, default=0,
+                   help="only this video_NNN.avi (a new one starts at each camera switch)")
     r.add_argument("--model", default="yolo11n.pt")
     r.set_defaults(fn=cmd_replay)
 

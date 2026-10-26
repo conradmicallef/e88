@@ -11,7 +11,7 @@ Three autopilots that use the drone's two cameras, running on your PC's CPU:
 
 Other keys: `T` take off · `L` land · **`SPACE` stop motors** · `K` calibrate camera mount · `G` gyro-calibrate (on the ground) · `C` switch camera · `Q` quit.
 
-Every flight is recorded (`recordings/<time>/video.avi` + `log.jsonl`), so you can re-run any autopilot on it offline with `replay`.
+Every flight is recorded (`recordings/<time>/video_001.avi`, a new file at each camera switch, + `log.jsonl`), so you can re-run any autopilot on it offline with `replay`.
 
 ## Setup (once)
 
