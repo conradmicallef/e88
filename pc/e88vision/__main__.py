@@ -25,7 +25,8 @@ def cmd_fly(a):
     proto = {"auto": None, "gl": P.GL, "legacy": P.LEGACY}[a.protocol]
     modes = {"hover": HOVER, "stabilise": STABILISE, "follow": FOLLOW, "autoland": LAND}
     App(source=_source(a.source), dry_run=a.dry_run, record=not a.no_record, protocol=proto,
-        hfov=a.hfov, start_mode=modes[a.mode], follow_model=a.model, transport=a.transport).run()
+        hfov=a.hfov, start_mode=modes[a.mode], follow_model=a.model, transport=a.transport,
+        rotate_bottom=a.rotate_bottom).run()
 
 
 def cmd_replay(a):
@@ -179,6 +180,8 @@ def main(argv=None):
     f.add_argument("--mode", choices=["hover", "stabilise", "follow", "autoland"], default="hover")
     f.add_argument("--model", default="yolo11n.pt", help="YOLO model for follow mode")
     f.add_argument("--transport", choices=["auto", "udp", "tcp"], default="auto", help="RTSP transport")
+    f.add_argument("--rotate-bottom", choices=["none", "cw", "ccw", "180"], default="none",
+                   help="rotate the down camera picture so its top is the drone's nose (then recalibrate with K)")
     f.set_defaults(fn=cmd_fly)
 
     r = sub.add_parser("replay", help="run an autopilot on a recorded flight (nothing is sent)")

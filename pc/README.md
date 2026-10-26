@@ -30,7 +30,7 @@ Every flight is recorded (`recordings/<time>/video_001.avi`, a new file at each 
 | 1 | `py -m e88vision probe` | Logs everything the drone sends back for 15 s, without flying. Paste the summary to Claude: it tells us GL vs legacy, camera resolution, and anything new. |
 | 2 | `py -m e88vision latency` | Point the front camera at the window's clock. Delay = left clock − clock in the video. Snap a phone photo to read both at once. |
 | 3 | `py -m e88vision pad` | Writes `landing_pad.pdf`. Print it at **100% / actual size** on A4, check the 100 mm line, and tape it flat with NOSE towards the drone's front. |
-| 4 | `py -m e88vision fly` → `T`, hover ~1 m over a rug, press `K` | Calibrates which way the down camera faces. The drone makes four small nudges, and the result is saved to `calibration.json`. Restart afterwards. |
+| 4 | `py -m e88vision fly` → `T`, hover ~1 m over a rug, press `K` (optionally add `--rotate-bottom cw` or `ccw` first, so the top of the down-camera picture is the drone's nose) | Calibrates which way the down camera faces. The drone makes four small nudges, and the result is saved to `calibration.json`. Restart afterwards. |
 | 5 | `py -m e88vision fly` → `T` → `1` | Stabilise. Push the drone gently by hand or walk a fan past it: it should drift back. |
 | 6 | `py -m e88vision fly` → `T` → `3` | Autoland, starting about 1 m above the pad. |
 | 7 | `py -m e88vision fly` → `T` → `2` | Follow. Stand 2–3 m in front of the drone. |

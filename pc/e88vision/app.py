@@ -25,6 +25,10 @@ log = logging.getLogger("app")
 HOVER, STABILISE, FOLLOW, LAND, CALIBRATE = "HOVER", "STABILISE", "FOLLOW", "AUTOLAND", "CALIBRATE"
 NEEDS_BOTTOM = {STABILISE, LAND, CALIBRATE}
 FRAME_STALE_S = 0.4
+# Applied to down-camera frames before any vision, so "up" in the picture can be
+# made the drone's nose. Re-run calibration (K) after changing it.
+ROTATIONS = {"none": None, "cw": cv2.ROTATE_90_CLOCKWISE, "ccw": cv2.ROTATE_90_COUNTERCLOCKWISE,
+             "180": cv2.ROTATE_180}
 
 HELP = ("T takeoff  L land  SPACE stop motors  0 hover  1 stabilise  2 follow  3 autoland  "
         "K calibrate mount  G gyro-cal (on ground)  C switch camera  Q quit")
@@ -42,13 +46,14 @@ def load_calibration(path="calibration.json"):
 class App:
     def __init__(self, source=P.RTSP_URL, dry_run=False, record=True, protocol=None,
                  hfov=90.0, start_mode=HOVER, realtime=True, follow_model="yolo11n.pt",
-                 show=True, transport="auto"):
+                 show=True, transport="auto", rotate_bottom="none"):
         self.dry_run = dry_run
         self.show = show
         cal = load_calibration()
         A = cal["A"] if cal else [[-1.0, 0.0], [0.0, 1.0]]
         self.link = DroneLink(protocol=protocol, dry_run=dry_run)
         self.src = LatestFrameSource(source, realtime=realtime, transport=transport)
+        self.rotate_bottom = ROTATIONS[rotate_bottom]
         self.flow = FlowEstimator()
         self.stab = Stabiliser(StabiliserConfig(A=A))
         self.follow = Follower(FollowConfig(model=follow_model))
@@ -108,7 +113,7 @@ class App:
                 dt = max(1e-3, min(0.2, now - last_t))
                 last_seq, last_t = fr.seq, now
                 self.step(fr.image, now, dt)
-                if self.show and not self._keys(1, fr.image):
+                if self.show and not self._keys(1, self._shown):
                     break
         finally:
             self.link.close()
@@ -120,6 +125,9 @@ class App:
                 cv2.destroyAllWindows()
 
     def step(self, img: np.ndarray, t: float, dt: float) -> Sticks:
+        if self.bottom and self.rotate_bottom is not None:
+            img = cv2.rotate(img, self.rotate_bottom)
+        self._shown = img
         s = Sticks()
         m = None
         if self.mode in (STABILISE, LAND, CALIBRATE):
