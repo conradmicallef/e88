@@ -42,13 +42,13 @@ def load_calibration(path="calibration.json"):
 class App:
     def __init__(self, source=P.RTSP_URL, dry_run=False, record=True, protocol=None,
                  hfov=90.0, start_mode=HOVER, realtime=True, follow_model="yolo11n.pt",
-                 show=True):
+                 show=True, transport="auto"):
         self.dry_run = dry_run
         self.show = show
         cal = load_calibration()
         A = cal["A"] if cal else [[-1.0, 0.0], [0.0, 1.0]]
         self.link = DroneLink(protocol=protocol, dry_run=dry_run)
-        self.src = LatestFrameSource(source, realtime=realtime)
+        self.src = LatestFrameSource(source, realtime=realtime, transport=transport)
         self.flow = FlowEstimator()
         self.stab = Stabiliser(StabiliserConfig(A=A))
         self.follow = Follower(FollowConfig(model=follow_model))
@@ -191,7 +191,8 @@ class App:
 
     def _draw_waiting(self):
         img = np.zeros((360, 640, 3), np.uint8)
-        cv2.putText(img, "waiting for video...", (180, 170), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+        cv2.putText(img, "waiting for video...", (180, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+        cv2.putText(img, self.src.info[:70], (20, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 210, 255), 1)
         self._keys(1, img)
 
     def _overlay(self, img: np.ndarray) -> np.ndarray:

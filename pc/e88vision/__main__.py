@@ -25,7 +25,7 @@ def cmd_fly(a):
     proto = {"auto": None, "gl": P.GL, "legacy": P.LEGACY}[a.protocol]
     modes = {"hover": HOVER, "stabilise": STABILISE, "follow": FOLLOW, "autoland": LAND}
     App(source=_source(a.source), dry_run=a.dry_run, record=not a.no_record, protocol=proto,
-        hfov=a.hfov, start_mode=modes[a.mode], follow_model=a.model).run()
+        hfov=a.hfov, start_mode=modes[a.mode], follow_model=a.model, transport=a.transport).run()
 
 
 def cmd_replay(a):
@@ -68,20 +68,38 @@ def cmd_latency(a):
     import cv2
     import numpy as np
     from .video import LatestFrameSource
-    src = LatestFrameSource(_source(a.source)).start()
+    from .link import DroneLink
+    src_url = _source(a.source)
+    link = DroneLink(dry_run=not str(src_url).startswith("rtsp")).start()  # heartbeat keeps the drone streaming
+    src = LatestFrameSource(src_url, transport=a.transport).start()
     print("Point the drone's front camera at the clock on the left. Video delay = left clock - "
           "clock shown in the video. Take a phone photo of the window to read both at once. Q quits.")
-    while True:
-        clock = np.zeros((360, 480, 3), np.uint8)
-        ms = int(time.monotonic() * 1000) % 100000
-        cv2.putText(clock, f"{ms:05d}", (40, 210), cv2.FONT_HERSHEY_SIMPLEX, 3.2, (255, 255, 255), 8)
+    t0 = time.monotonic()
+    try:
+        while True:
+            clock = np.zeros((360, 480, 3), np.uint8)
+            ms = int(time.monotonic() * 1000) % 100000
+            cv2.putText(clock, f"{ms:05d}", (40, 210), cv2.FONT_HERSHEY_SIMPLEX, 3.2, (255, 255, 255), 8)
+            fr = src.get()
+            if fr is not None:
+                vid = cv2.resize(fr.image, (480, 360))
+                note = f"{fr.image.shape[1]}x{fr.image.shape[0]}  {src.fps:4.1f} fps  {src.info}"
+            else:
+                vid = np.zeros((360, 480, 3), np.uint8)
+                note = f"{src.info}  ({time.monotonic() - t0:.0f} s)"
+            cv2.putText(vid, note, (8, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+            cv2.imshow("latency: clock | drone video", np.hstack([clock, vid]))
+            if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
         fr = src.get()
-        vid = cv2.resize(fr.image, (480, 360)) if fr is not None else np.zeros((360, 480, 3), np.uint8)
-        cv2.imshow("latency: clock | drone video", np.hstack([clock, vid]))
-        if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
-            break
-    src.stop()
-    cv2.destroyAllWindows()
+        print(f"video: {src.info}; " + (f"{fr.image.shape[1]}x{fr.image.shape[0]} at {src.fps:.1f} fps"
+                                      if fr is not None else "no frames received"))
+        src.stop()
+        link.close()
+        cv2.destroyAllWindows()
 
 
 def cmd_pad(a):
@@ -105,6 +123,7 @@ def main(argv=None):
     f.add_argument("--hfov", type=float, default=90.0, help="down camera horizontal field of view, degrees")
     f.add_argument("--mode", choices=["hover", "stabilise", "follow", "autoland"], default="hover")
     f.add_argument("--model", default="yolo11n.pt", help="YOLO model for follow mode")
+    f.add_argument("--transport", choices=["auto", "udp", "tcp"], default="auto", help="RTSP transport")
     f.set_defaults(fn=cmd_fly)
 
     r = sub.add_parser("replay", help="run an autopilot on a recorded flight (nothing is sent)")
@@ -120,6 +139,7 @@ def main(argv=None):
 
     la = sub.add_parser("latency", help="measure video delay")
     la.add_argument("--source", default=P.RTSP_URL)
+    la.add_argument("--transport", choices=["auto", "udp", "tcp"], default="auto", help="RTSP transport")
     la.set_defaults(fn=cmd_latency)
 
     pa = sub.add_parser("pad", help="write the printable landing pad")
@@ -128,7 +148,10 @@ def main(argv=None):
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
                         format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
-    a.fn(a)
+    try:
+        a.fn(a)
+    except KeyboardInterrupt:
+        print("stopped")
 
 
 if __name__ == "__main__":

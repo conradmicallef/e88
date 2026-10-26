@@ -13,11 +13,18 @@ import numpy as np
 
 log = logging.getLogger("video")
 
-# Low-latency FFmpeg options for OpenCV's RTSP reader (must be set before opening).
-os.environ.setdefault(
-    "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-    "rtsp_transport;udp|fflags;nobuffer|flags;low_delay|max_delay;0|reorder_queue_size;0",
-)
+# FFmpeg options for the drone's RTSP (RTP/JPEG) stream. Each JPEG frame spans
+# dozens of UDP packets, so losing or reordering one drops the whole frame:
+#  - big socket buffer so a frame's burst of packets is never overflowed
+#  - keep FFmpeg's normal reorder queue (setting it to 0 turns any reordered
+#    packet into a "Missing packets; dropping frame")
+#  - nobuffer/low_delay still avoid building a backlog of decoded frames
+_BASE_OPTS = "fflags;nobuffer|flags;low_delay|buffer_size;4194304"
+TRANSPORTS = ("udp", "tcp")
+
+
+def rtsp_options(transport: str) -> str:
+    return f"rtsp_transport;{transport}|{_BASE_OPTS}"
 
 
 @dataclass
@@ -28,20 +35,32 @@ class Frame:
 
 
 class LatestFrameSource:
-    """Background reader. `get()` returns the newest frame (or None)."""
+    """Background reader. `get()` returns the newest frame (or None).
 
-    def __init__(self, url, realtime: bool = True, loop: bool = False):
+    For RTSP, `transport="auto"` tries UDP first and falls back to TCP when a
+    transport can't open, or opens but delivers no frames."""
+
+    def __init__(self, url, realtime: bool = True, loop: bool = False, transport: str = "auto"):
         self.url = url
         self.realtime = realtime   # False for files: pace at file fps
         self.loop = loop
+        self.transport = transport
         self._frame: Frame | None = None
         self._lock = threading.Lock()
         self._run = False
         self._seq = 0
         self._reopen = threading.Event()
+        self._try = 0
         self.fps = 0.0
         self.connected = False
         self.ended = False
+        self.transport_in_use: str | None = None
+        self.locked_transport: str | None = None   # first transport that delivered frames
+        self.info = "opening video..."
+
+    @property
+    def is_rtsp(self) -> bool:
+        return isinstance(self.url, str) and self.url.startswith("rtsp")
 
     def start(self) -> "LatestFrameSource":
         self._run = True
@@ -63,15 +82,35 @@ class LatestFrameSource:
         f = self.get()
         return float("inf") if f is None else time.monotonic() - f.t
 
+    def _next_transport(self) -> str:
+        if self.transport != "auto":
+            return self.transport
+        if self.locked_transport:
+            return self.locked_transport
+        t = TRANSPORTS[self._try % len(TRANSPORTS)]
+        self._try += 1
+        return t
+
     def _open(self):
         if isinstance(self.url, int):
-            cap = cv2.VideoCapture(self.url)
-        elif str(self.url).startswith("rtsp"):
-            cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+            # DirectShow opens most webcams much faster than Windows' default backend.
+            if os.name == "nt":
+                cap = cv2.VideoCapture(self.url, cv2.CAP_DSHOW)
+                if cap.isOpened():
+                    return cap
+                cap.release()
+            return cv2.VideoCapture(self.url)
+        if self.is_rtsp:
+            tr = self._next_transport()
+            self.transport_in_use = tr
+            self.info = f"opening drone video over {tr.upper()}..."
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = rtsp_options(tr)
+            cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG,
+                                   [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000,
+                                    cv2.CAP_PROP_READ_TIMEOUT_MSEC, 3000])
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        else:
-            cap = cv2.VideoCapture(self.url)
-        return cap
+            return cap
+        return cv2.VideoCapture(self.url)
 
     def _loop(self):
         times: list[float] = []
@@ -79,6 +118,9 @@ class LatestFrameSource:
             cap = self._open()
             if not cap.isOpened():
                 self.connected = False
+                if self.is_rtsp:
+                    self.info = f"{self.transport_in_use.upper()} would not open; retrying"
+                    log.info("RTSP over %s did not open", self.transport_in_use)
                 time.sleep(0.5)
                 continue
             self.connected = True
@@ -87,11 +129,19 @@ class LatestFrameSource:
                 fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
                 file_dt = 1.0 / fps
             self._reopen.clear()
+            opened_at = time.monotonic()
+            got_any = False
             while self._run and not self._reopen.is_set():
                 ok, img = cap.read()
+                now = time.monotonic()
                 if not ok:
                     break
-                now = time.monotonic()
+                if not got_any and self.is_rtsp:
+                    got_any = True
+                    if self.locked_transport is None:
+                        self.locked_transport = self.transport_in_use
+                        log.info("drone video working over %s", self.transport_in_use.upper())
+                    self.info = f"video over {self.transport_in_use.upper()}"
                 self._seq += 1
                 with self._lock:
                     self._frame = Frame(img, now, self._seq)
@@ -101,6 +151,10 @@ class LatestFrameSource:
                     self.fps = (len(times) - 1) / (times[-1] - times[0] + 1e-9)
                 if file_dt:
                     time.sleep(file_dt)
+            if self.is_rtsp and not got_any and self._run and not self._reopen.is_set():
+                waited = time.monotonic() - opened_at
+                log.info("RTSP over %s opened but gave no frames in %.1f s", self.transport_in_use, waited)
+                self.info = f"{self.transport_in_use.upper()} gave no frames; trying the other transport"
             cap.release()
             self.connected = False
             if not self.realtime and not self._reopen.is_set():
