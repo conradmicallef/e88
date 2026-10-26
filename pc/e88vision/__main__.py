@@ -72,16 +72,19 @@ def cmd_latency(a):
     src_url = _source(a.source)
     link = DroneLink(dry_run=not str(src_url).startswith("rtsp")).start()  # heartbeat keeps the drone streaming
     src = LatestFrameSource(src_url, transport=a.transport).start()
-    print("Point the drone's front camera at the clock on the left. Video delay = left clock - "
+    print("Point the drone's front camera at the clock on the left (seconds.tenths). Video delay = left clock - "
           "clock shown in the video. Take a phone photo of the window to read both at once. Q quits.")
+    print(f"network: {network_check()}")
     t0 = time.monotonic()
     frozen_since = 0.0
     stalls: list = []
     try:
         while True:
             clock = np.zeros((360, 480, 3), np.uint8)
-            ms = int(time.monotonic() * 1000) % 100000
-            cv2.putText(clock, f"{ms:05d}", (40, 210), cv2.FONT_HERSHEY_SIMPLEX, 3.2, (255, 255, 255), 8)
+            # Big, coarse digits survive the drone camera's blur: seconds + tenths.
+            tenths = int(time.monotonic() * 10) % 1000
+            cv2.putText(clock, f"{tenths // 10:02d}.{tenths % 10}", (60, 250), cv2.FONT_HERSHEY_SIMPLEX,
+                        6.0, (255, 255, 255), 18)
             fr = src.get()
             now = time.monotonic()
             st = link.stats
@@ -99,7 +102,7 @@ def cmd_latency(a):
                     if age > 2 and not frozen_since:
                         frozen_since = now
                         stalls.append((round(now - t0, 1), tel))
-                        print(f"{now - t0:6.1f} s  video stalled; {tel}")
+                        print(f"{now - t0:6.1f} s  video stalled; {tel}; {network_check()}")
                 elif frozen_since:
                     print(f"{now - t0:6.1f} s  video back after {now - frozen_since:.1f} s")
                     frozen_since = 0.0
@@ -122,6 +125,27 @@ def cmd_latency(a):
         src.stop()
         link.close()
         cv2.destroyAllWindows()
+
+
+def network_check() -> str:
+    """Is this PC still on the drone's Wi-Fi, and does the drone answer a ping?"""
+    import socket
+    import subprocess
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((P.DRONE_IP, P.CONTROL_PORT))
+        ip = s.getsockname()[0]
+        s.close()
+    except OSError:
+        ip = "none"
+    on_drone = ip.startswith("192.168.1.")
+    flag = ["-n", "1", "-w", "700"] if sys.platform == "win32" else ["-c", "1", "-W", "1"]
+    try:
+        r = subprocess.run(["ping", *flag, P.DRONE_IP], capture_output=True, text=True, timeout=3)
+        ping = "answers ping" if r.returncode == 0 and "TTL=" in r.stdout.upper() else "no ping reply"
+    except Exception:
+        ping = "ping unavailable"
+    return f"PC address {ip} ({'on drone Wi-Fi' if on_drone else 'NOT on drone Wi-Fi'}), drone {ping}"
 
 
 def cmd_pad(a):
