@@ -75,19 +75,39 @@ def cmd_latency(a):
     print("Point the drone's front camera at the clock on the left. Video delay = left clock - "
           "clock shown in the video. Take a phone photo of the window to read both at once. Q quits.")
     t0 = time.monotonic()
+    frozen_since = 0.0
+    stalls: list = []
     try:
         while True:
             clock = np.zeros((360, 480, 3), np.uint8)
             ms = int(time.monotonic() * 1000) % 100000
             cv2.putText(clock, f"{ms:05d}", (40, 210), cv2.FONT_HERSHEY_SIMPLEX, 3.2, (255, 255, 255), 8)
             fr = src.get()
+            now = time.monotonic()
+            st = link.stats
+            tel = "drone link: " + ("dry run" if link.dry_run else
+                                    "OK" if st.rx and now - st.last_rx < 2 else
+                                    f"SILENT {now - st.last_rx:.0f} s" if st.rx else "no reply yet")
             if fr is not None:
                 vid = cv2.resize(fr.image, (480, 360))
                 note = f"{fr.image.shape[1]}x{fr.image.shape[0]}  {src.fps:4.1f} fps  {src.info}"
+                age = now - fr.t
+                if age > 0.5:   # don't read the delay off a frozen picture
+                    cv2.rectangle(vid, (0, 0), (480, 40), (0, 0, 160), -1)
+                    cv2.putText(vid, f"VIDEO FROZEN {age:.1f} s - don't read this", (10, 27),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    if age > 2 and not frozen_since:
+                        frozen_since = now
+                        stalls.append((round(now - t0, 1), tel))
+                        print(f"{now - t0:6.1f} s  video stalled; {tel}")
+                elif frozen_since:
+                    print(f"{now - t0:6.1f} s  video back after {now - frozen_since:.1f} s")
+                    frozen_since = 0.0
             else:
                 vid = np.zeros((360, 480, 3), np.uint8)
-                note = f"{src.info}  ({time.monotonic() - t0:.0f} s)"
-            cv2.putText(vid, note, (8, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+                note = f"{src.info}  ({now - t0:.0f} s)"
+            cv2.putText(vid, note, (8, 330), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+            cv2.putText(vid, tel, (8, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
             cv2.imshow("latency: clock | drone video", np.hstack([clock, vid]))
             if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
                 break
@@ -97,6 +117,8 @@ def cmd_latency(a):
         fr = src.get()
         print(f"video: {src.info}; " + (f"{fr.image.shape[1]}x{fr.image.shape[0]} at {src.fps:.1f} fps"
                                       if fr is not None else "no frames received"))
+        print(f"ran {time.monotonic() - t0:.0f} s, video stalls: {stalls or 'none'}; "
+              f"drone packets received {link.stats.rx}")
         src.stop()
         link.close()
         cv2.destroyAllWindows()

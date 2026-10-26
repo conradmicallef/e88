@@ -51,6 +51,7 @@ class LatestFrameSource:
         self._seq = 0
         self._reopen = threading.Event()
         self._try = 0
+        self._fails = 0   # consecutive opens that gave no frames
         self.fps = 0.0
         self.connected = False
         self.ended = False
@@ -85,7 +86,7 @@ class LatestFrameSource:
     def _next_transport(self) -> str:
         if self.transport != "auto":
             return self.transport
-        if self.locked_transport:
+        if self.locked_transport and self._fails < 2:
             return self.locked_transport
         t = TRANSPORTS[self._try % len(TRANSPORTS)]
         self._try += 1
@@ -118,6 +119,7 @@ class LatestFrameSource:
             cap = self._open()
             if not cap.isOpened():
                 self.connected = False
+                self._fails += 1
                 if self.is_rtsp:
                     self.info = f"{self.transport_in_use.upper()} would not open; retrying"
                     log.info("RTSP over %s did not open", self.transport_in_use)
@@ -138,7 +140,8 @@ class LatestFrameSource:
                     break
                 if not got_any and self.is_rtsp:
                     got_any = True
-                    if self.locked_transport is None:
+                    self._fails = 0
+                    if self.locked_transport != self.transport_in_use:
                         self.locked_transport = self.transport_in_use
                         log.info("drone video working over %s", self.transport_in_use.upper())
                     self.info = f"video over {self.transport_in_use.upper()}"
@@ -152,6 +155,7 @@ class LatestFrameSource:
                 if file_dt:
                     time.sleep(file_dt)
             if self.is_rtsp and not got_any and self._run and not self._reopen.is_set():
+                self._fails += 1
                 waited = time.monotonic() - opened_at
                 log.info("RTSP over %s opened but gave no frames in %.1f s", self.transport_in_use, waited)
                 self.info = f"{self.transport_in_use.upper()} gave no frames; trying the other transport"
